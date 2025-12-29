@@ -1,0 +1,79 @@
+
+#include "main.h"
+#include "mpu6050.h"
+#include <stdio.h>
+#include <string.h>
+
+/* Global Değişkenler */
+I2C_HandleTypeDef hi2c2;
+UART_HandleTypeDef huart4;
+
+int16_t gyroData[3];
+char uartData[50];
+volatile uint8_t dataReadyFlag = 0; // Kesme bayrağı
+
+/* Fonksiyon Prototipleri */
+void SystemClock_Config(void);
+static void MPU_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_I2C2_Init(void);
+static void MX_UART4_Init(void);
+void Error_Handler(void);
+
+int main(void)
+{
+  /* Donanım Başlatma */
+  HAL_Init();
+  SystemClock_Config();
+  MX_GPIO_Init();
+  MX_I2C2_Init();
+  MX_UART4_Init();
+  MPU_Config();
+
+  HAL_Delay(100); 
+
+  /* Sensörü Başlat */
+  if (MPU6050_Init(&hi2c2) == HAL_OK)
+  {
+      // İlk kesme zincirini başlat
+      HAL_I2C_Mem_Read_IT(&hi2c2, MPU6050_ADDRESS, MPU6050_GYRO_XOUT_H, I2C_MEMADD_SIZE_8BIT, (uint8_t*)gyroData, sizeof(gyroData));
+  }
+  else
+  {
+      Error_Handler();
+  }
+
+  while (1)
+  {
+    /* "Flag" Yöntemi: Kesmeden haber gelince iş yap */
+    if (dataReadyFlag == 1)
+    {
+        dataReadyFlag = 0; // Bayrağı indir
+
+        // 1. Veriyi işle (Formatla)
+        sprintf(uartData, "Gyro X: %d, Y: %d, Z: %d\r\n", gyroData[0], gyroData[1], gyroData[2]);
+
+        // 2. Gönder
+        HAL_UART_Transmit(&huart4, (uint8_t*)uartData, strlen(uartData), 100);
+
+        // 3. Yeni veri için kesmeyi tekrar kur (Zinciri devam ettir)
+        HAL_I2C_Mem_Read_IT(&hi2c2, MPU6050_ADDRESS, MPU6050_GYRO_XOUT_H, I2C_MEMADD_SIZE_8BIT, (uint8_t*)gyroData, sizeof(gyroData));
+        
+        HAL_Delay(50); // Okuma sıklığını kontrol et
+    }
+  }
+}
+
+/* Callback (Kesme) Fonksiyonu */
+void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c)
+{
+    if (hi2c->Instance == I2C2)
+    {
+        // Sadece bayrağı kaldır ve kaç! (Blocking yok)
+        dataReadyFlag = 1;
+    }
+}
+
+/* Kalan Init Fonksiyonları (MX_GPIO_Init vb.) aşağıda aynen kalabilir... */
+// Not: Buraya senin orijinal dosyanın altındaki Init fonksiyonlarını eklemeyi unutma.
+// Veya sadece main loop ve callback kısmını değiştirmen yeterli.
